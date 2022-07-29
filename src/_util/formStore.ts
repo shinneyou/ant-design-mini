@@ -1,12 +1,31 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import Schema from 'async-validator';
+import Schema from "async-validator";
 
 export class Store {
+  /**
+   * events 主要存储了form的onValuesChange和onFinish
+   * 在表单的任意内容修改时调用onValuesChange，具体逻辑可在trigger中查看逻辑
+   * 在表单onFinish时使用
+   * events[formId] = [onValuesChange, onFinish]
+   */
   private events: Record<string, any>;
 
+  /**
+   * formTree维护整个页面的form表单项，包含required,rules,value等等
+   * formTree[formId] = {
+   * required: boolean;
+   * rules: [];
+   * values;
+   * updateFieldValue: Function;
+  }*/
   private formTree: Record<string, any>;
+
+  // 在formItem中将 formItem的内容一项一项的fieldKey 添加如currentField中
+  // 例如<form form='example'><FormItem name='itemExample'><Input /></FormItem>
+  // 则在Input的mixins[form]的onInit 方法中会调用addFieldSet方法设置
+  // currentField.example = ['itemExample']
 
   private currentField: Record<string, any>;
 
@@ -31,9 +50,11 @@ export class Store {
       this.formTree[form][field].value = initVal[field];
     });
 
+    // 这里events 拿来干什么
     if (!this.events[form]) {
       this.events[form] = [onValuesChange, onFinish];
     }
+    // currentField 的含义是
     if (!this.currentField[form]) {
       this.currentField[form] = [];
     }
@@ -46,7 +67,22 @@ export class Store {
     return this.formTree[form][field].value;
   }
 
-  bootstrap(form: string, field: string, rules: any[], initialValue: any, required: boolean): void {
+  /**
+   * 在formItem的onInit中会调用store.bootstrap方法
+   * 将formItem的若干内容绑定在formTree[formId][field]上，之后方便进行validator
+   * @param form
+   * @param field
+   * @param rules
+   * @param initialValue
+   * @param required
+   */
+  bootstrap(
+    form: string,
+    field: string,
+    rules: any[],
+    initialValue: any,
+    required: boolean
+  ): void {
     if (!this.formTree[form]) {
       this.formTree[form] = {};
     }
@@ -59,7 +95,7 @@ export class Store {
       this.formTree[form][field] = {};
     }
     const prevVal = this.formTree[form][field].value;
-    this.formTree[form][field].value = prevVal || initialValue || '';
+    this.formTree[form][field].value = prevVal || initialValue || "";
 
     this.formTree[form][field].rules = rules;
     this.formTree[form][field].required = required;
@@ -73,15 +109,33 @@ export class Store {
     this.initValidator(form);
   }
 
+  /**
+  更新了currentField[form].field，是否需要更新formTree[formId].field = {required, rules, value}呢？
+   */
   updateFieldSet(form: string, prev: string, cur: string): void {
-    const prevRealFieldIndex = this.currentField[form].find((item) => item === prev);
+    const prevRealFieldIndex = this.currentField[form].find(
+      (item) => item === prev
+    );
     this.currentField[form].splice(prevRealFieldIndex, 1);
     this.currentField[form].push(cur);
   }
 
-  addUpdateFiledValue(form: string, field: string, updateFieldValue: CallableFunction): void {
+  /**
+   *
+   * 此方法在具体表单项的onInit中调用，
+   * 用于将组件变化的updateFieldValue挂载在formTree[formId][field]上
+   * @param form
+   * @param field
+   * @param updateFieldValue
+   */
+  addUpdateFiledValue(
+    form: string,
+    field: string,
+    updateFieldValue: CallableFunction
+  ): void {
     if (this.formTree[form] && this.formTree[form][field]) {
       const updateFiledValueArr = this.formTree[form][field].updateFieldValue;
+      // updateFieldValue 在哪儿消费？
       if (Array.isArray(updateFiledValueArr)) {
         updateFiledValueArr.push(updateFieldValue);
       } else {
@@ -92,9 +146,9 @@ export class Store {
 
   // TODO update 数组--->需要解耦
   setValueAfterUpdate(setData, form: string, next: string): void {
-    const val = this.formTree[form][next].value || '';
+    const val = this.formTree[form][next].value || "";
     setData({
-      cValue: val,
+      cValue: val, // 为什么是写死的cValue
     });
   }
 
@@ -107,7 +161,9 @@ export class Store {
   }
 
   delFieldSet(form: string, field: string): void {
-    const realFieldIndex = this.currentField[form].findIndex((item) => item === field);
+    const realFieldIndex = this.currentField[form].findIndex(
+      (item) => item === field
+    );
     this.currentField[form].splice(realFieldIndex, 1);
     if (this.formTree[form] && this.formTree[form][field]) {
       this.formTree[form][field] = null;
@@ -145,24 +201,28 @@ export class Store {
     this.formTree[form][field].value = val;
     const handlers = this.events[form][0];
     const values = this.getTotalValue(form);
-    this.formTree[form].validator.validate({ ...values, [field]: val }, (errors) => {
-      const updateErrorInfo = this.formTree[form][field]?.updateErrorInfo;
-      const updateSubmitButtonStatus = this.formTree[form].submit?.updateSubmitButtonStatus;
-      if (!errors) {
-        updateErrorInfo?.(null);
-        updateSubmitButtonStatus?.(null);
-        return;
-      }
-      const error = errors.filter((item) => item.field === field)[0];
+    this.formTree[form].validator.validate(
+      { ...values, [field]: val },
+      (errors) => {
+        const updateErrorInfo = this.formTree[form][field]?.updateErrorInfo;
+        const updateSubmitButtonStatus =
+          this.formTree[form].submit?.updateSubmitButtonStatus;
+        if (!errors) {
+          updateErrorInfo?.(null);
+          updateSubmitButtonStatus?.(null);
+          return;
+        }
+        const error = errors.filter((item) => item.field === field)[0];
 
-      if (error) {
-        updateErrorInfo?.({ ...error });
-      } else {
-        updateErrorInfo?.(null);
-      }
+        if (error) {
+          updateErrorInfo?.({ ...error });
+        } else {
+          updateErrorInfo?.(null);
+        }
 
-      updateSubmitButtonStatus?.(!!errors.length);
-    });
+        updateSubmitButtonStatus?.(!!errors.length);
+      }
+    );
 
     const totalVal = this.getTotalValue(form);
     handlers({ [field]: val }, totalVal);
@@ -186,10 +246,13 @@ export class Store {
           if (!errFields[field]) {
             this.formTree[form][field]?.updateErrorInfo(null);
           } else {
-            this.formTree[form][field]?.updateErrorInfo({ ...errFields[field] });
+            this.formTree[form][field]?.updateErrorInfo({
+              ...errFields[field],
+            });
           }
         });
-        const updateSubmitButtonStatus = this.formTree[form].submit?.updateSubmitButtonStatus;
+        const updateSubmitButtonStatus =
+          this.formTree[form].submit?.updateSubmitButtonStatus;
         if (errors.length) {
           // errors.forEach(err => {
           //   this.formTree[form][err.field]?.updateErrorInfo({ ...err });
@@ -204,10 +267,17 @@ export class Store {
 
   setFieldsValue(form: string, value: any): void {
     Object.keys(value).forEach((key) => {
-      if (this.currentField[form] && this.currentField[form].find((item) => item === key)) {
-        if (!this.formTree[form][key] || !this.formTree[form][key].updateFieldValue) return;
+      if (
+        this.currentField[form] &&
+        this.currentField[form].find((item) => item === key)
+      ) {
+        if (
+          !this.formTree[form][key] ||
+          !this.formTree[form][key].updateFieldValue
+        )
+          return;
         this.formTree[form][key].updateFieldValue.forEach((fn) => {
-          if (typeof fn === 'function') {
+          if (typeof fn === "function") {
             this.formTree[form][key].value = value[key];
             fn(value[key]);
           }
@@ -225,6 +295,10 @@ export class Store {
     this.events[form()][1](this.getTotalValue(form()));
   }
 
+  /**
+   * @TODO: 这里需要销毁this.currentField[formName] = null
+   * @param formName
+   */
   tear(formName: string): void {
     this.formTree[formName] = null;
     this.events[formName] = null;
@@ -240,7 +314,10 @@ export class Store {
         descriptor[field] = [...rules];
       }
       if (required) {
-        const requiredItem = { required, message: label ? `请输入${label}` : '请输入必填项' };
+        const requiredItem = {
+          required,
+          message: label ? `请输入${label}` : "请输入必填项",
+        };
         if (descriptor[field]) {
           descriptor[field].unshift(requiredItem);
         } else {
